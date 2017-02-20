@@ -6,7 +6,7 @@ import operator
 from collections import Counter
 import math
 import json
-from sys import argv
+from sys import argv,stderr
 
 class Indexer(dict):
     def __missing__(self,key):
@@ -14,7 +14,7 @@ class Indexer(dict):
         self[key] = n
         return n
 cre = re.compile(r'([\w\*]+)')
-cre2 = re.compile(r'(?P<reac>.*)->(?P<prod>[^(]*)(\((?P<prop>.*)\))?')
+cre2 = re.compile(r'(?P<reac>[^/]*)(/(?P<inhib>.*))?->(?P<prod>[^(]*)(\((?P<prop>.*)\))?')
 cre3 = re.compile(r'(?:(.*)\*)?(.*)')
 
 indexer = Indexer()
@@ -26,6 +26,8 @@ with open(argv[1]) as foo:
 reactions = []
 
 def specList(s):
+    if not s:
+        return []
     items = cre.findall(s)
     res = []
     for i in items:
@@ -33,20 +35,29 @@ def specList(s):
         res.append((int(finalParse[0] or 1),indexer[finalParse[1]]))
     return res
 
-for l in f.strip().split('\n'):
+lines = f.strip().split('\n')
+
+for l in lines[1:]:
     reaction = {}
     mdic = cre2.match(l).groupdict()
     reaction['reactants'] = specList(mdic['reac'])
     reaction['products'] = specList(mdic['prod'])
+    reaction['inhibitors'] = specList(mdic['inhib'])
     reaction['propensity'] = float(mdic['prop'] or 1)
     reactions.append(reaction)
 
 
 state = [0]*len(indexer)
+dicState = json.loads(lines[0])
+for (k,v) in dicState.items():
+    state[indexer[k]] = v
 
-def canFire(l):
-    for (coef,spec) in l:
+def canFire(r):
+    for (coef,spec) in r['reactants']:
         if state[spec] < coef:
+            return False
+    for (_,spec) in r['inhibitors']:
+        if state[spec] > 0:
             return False
     return True
 
@@ -60,16 +71,21 @@ for _ in indexer:
 
 h = int(argv[2])
 k = int(argv[3])
-for _ in range(bigL(h,k)):
-    doable = [r for r in reactions if canFire(r['reactants'])]
+loop_end = bigL(h,k)
+for loop_n in range(loop_end):
+    if loop_n % 2048 == 0:
+        print(state,file=stderr)
+        print(100*loop_n/loop_end,file=stderr)
+    doable = [r for r in reactions if canFire(r)]
     if not doable:
         break
     weights = [r['propensity']*functools.reduce(operator.mul,[state[spec]**c for (c,spec) in r['reactants']],1) for r in doable]
     chosen = random.choices(doable,weights=weights)[0]
     for (coef,spec) in chosen['products']:
-        influences[2*spec] |= {tuple([i for (i,x) in enumerate(state) if x > 0])}
+        #Warning, outputs reverse of teh influence
+        influences[2*spec] |= {tuple([2*i + (1 if x > 0 else 0) for (i,x) in enumerate(state)])}
     for (coef,spec) in chosen['reactants']:
-        influences[2*spec+1] |= {tuple([i for (i,x) in enumerate(state) if x > 0])}
+        influences[2*spec+1] |= {tuple([2*i + (1 if x > 0 else 0) for (i,x) in enumerate(state)])}
     for (coef,spec) in chosen['products']:
         state[spec] += coef
     for (coef,spec) in chosen['reactants']:
