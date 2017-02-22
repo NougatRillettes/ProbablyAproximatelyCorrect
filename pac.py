@@ -93,7 +93,7 @@ def varName(i):
     if i % 2 == 0:
         return revIndexer[i//2]
     else:
-        return '¬'+revIndexer[i//2]
+        return '!'+revIndexer[i//2]
 mask = 0
 for _ in range(n):
     mask = 4*mask +1
